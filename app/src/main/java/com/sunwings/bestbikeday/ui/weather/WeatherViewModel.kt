@@ -2,6 +2,7 @@ package com.sunwings.bestbikeday.ui.weather
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sunwings.bestbikeday.data.RainViewerRepository
 import com.sunwings.bestbikeday.data.WeatherRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -10,7 +11,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class WeatherViewModel(
-    private val repository: WeatherRepository = WeatherRepository()
+    private val repository: WeatherRepository = WeatherRepository(),
+    private val rainViewerRepository: RainViewerRepository = RainViewerRepository()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WeatherUiState(isLoading = true))
@@ -34,6 +36,7 @@ class WeatherViewModel(
                     userLocation = newLocation
                 )
             }
+            val radarFrame = runCatching { rainViewerRepository.latestRadarFrame() }.getOrNull()
             runCatching {
                 repository.getWeeklyForecast(latitude, longitude)
             }.onSuccess { dailyForecast ->
@@ -42,7 +45,8 @@ class WeatherViewModel(
                         isLoading = false,
                         forecast = dailyForecast,
                         errorMessage = null,
-                        userLocation = newLocation
+                        userLocation = newLocation,
+                        rainFrame = radarFrame ?: it.rainFrame
                     )
                 }
             }.onFailure { throwable ->
@@ -50,7 +54,8 @@ class WeatherViewModel(
                     it.copy(
                         isLoading = false,
                         errorMessage = throwable.message ?: "Unable to load forecast",
-                        userLocation = newLocation
+                        userLocation = newLocation,
+                        rainFrame = radarFrame ?: it.rainFrame
                     )
                 }
             }

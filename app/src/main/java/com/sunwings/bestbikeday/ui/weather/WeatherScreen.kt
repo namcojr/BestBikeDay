@@ -56,10 +56,12 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.LifecycleEventObserver
 import com.sunwings.bestbikeday.data.model.DailyForecast
+import com.sunwings.bestbikeday.data.model.RainRadarFrame
 import com.sunwings.bestbikeday.location.awaitBestLocation
 import com.sunwings.bestbikeday.location.fusedLocationProvider
 import com.sunwings.bestbikeday.location.hasLocationPermission
@@ -67,7 +69,7 @@ import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.tileprovider.MapTile
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
@@ -204,7 +206,8 @@ private fun WeatherScreen(
                             showRadar = !showRadar
                         }
                     },
-                    userLocation = uiState.userLocation
+                    userLocation = uiState.userLocation,
+                    rainFrame = uiState.rainFrame
                 )
             }
         }
@@ -297,7 +300,8 @@ private fun ForecastOrRadarSection(
     showingRadar: Boolean,
     canShowRadar: Boolean,
     onToggleRadar: () -> Unit,
-    userLocation: UserLocation?
+    userLocation: UserLocation?,
+    rainFrame: RainRadarFrame?
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         HeaderActions(
@@ -308,21 +312,34 @@ private fun ForecastOrRadarSection(
             onToggleRadar = onToggleRadar
         )
         Spacer(modifier = Modifier.height(16.dp))
-        if (showingRadar && canShowRadar) {
-            RadarMapCard(
-                userLocation = userLocation,
-                modifier = Modifier.fillMaxWidth()
-            )
-        } else {
-            ForecastCardsList(forecast = forecast)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            if (showingRadar && canShowRadar) {
+                RadarMapCard(
+                    userLocation = userLocation,
+                    rainFrame = rainFrame,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                ForecastCardsList(
+                    forecast = forecast,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ForecastCardsList(forecast: List<DailyForecast>) {
+private fun ForecastCardsList(
+    forecast: List<DailyForecast>,
+    modifier: Modifier = Modifier
+) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(forecast) { day ->
@@ -347,15 +364,21 @@ private fun HeaderActions(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Row(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Button(
                 onClick = onToggleRadar,
-                enabled = canShowRadar
+                enabled = canShowRadar,
+                modifier = Modifier.weight(1f)
             ) {
                 Text(text = if (showingRadar) "Forecasts" else "Rain Radar")
             }
-            Button(onClick = onRefresh, enabled = !isRefreshing) {
+            Button(
+                onClick = onRefresh,
+                enabled = !isRefreshing,
+                modifier = Modifier.weight(1f)
+            ) {
                 Text(text = if (isRefreshing) "Refreshing" else "Refresh forecast")
             }
         }
@@ -365,6 +388,7 @@ private fun HeaderActions(
 @Composable
 private fun RadarMapCard(
     userLocation: UserLocation?,
+    rainFrame: RainRadarFrame?,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -377,11 +401,15 @@ private fun RadarMapCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(360.dp),
+                .fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            if (userLocation != null) {
-                RadarMapView(location = userLocation, modifier = Modifier.fillMaxSize())
+            if (userLocation != null && rainFrame != null) {
+                RadarMapView(
+                    location = userLocation,
+                    rainFrame = rainFrame,
+                    modifier = Modifier.fillMaxSize()
+                )
             } else {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -389,7 +417,11 @@ private fun RadarMapCard(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Text(
-                        text = "Need your location to show the radar",
+                        text = if (userLocation == null) {
+                            "Need your location to show the radar"
+                        } else {
+                            "Radar data unavailable right now"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -401,7 +433,11 @@ private fun RadarMapCard(
 }
 
 @Composable
-private fun RadarMapView(location: UserLocation, modifier: Modifier = Modifier) {
+private fun RadarMapView(
+    location: UserLocation,
+    rainFrame: RainRadarFrame,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val mapView = remember(context) {
@@ -410,9 +446,13 @@ private fun RadarMapView(location: UserLocation, modifier: Modifier = Modifier) 
             setMultiTouchControls(true)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             setTilesScaledToDpi(true)
+            // RainViewer tiles cap at zoom level 10 per their latest policy.
+            setMaxZoomLevel(10.0)
         }
     }
-    val radarOverlay = remember(context) { createRainViewerOverlay(context) }
+    val radarOverlay = remember(context, rainFrame) {
+        createRainViewerOverlay(context, rainFrame)
+    }
     val userMarker = remember(mapView) {
         Marker(mapView).apply {
             title = "You are here"
@@ -451,10 +491,10 @@ private fun RadarMapView(location: UserLocation, modifier: Modifier = Modifier) 
     AndroidView(
         modifier = modifier,
         factory = { mapView },
-        update = { view ->
+        update = { view: MapView ->
             val newPoint = GeoPoint(location.latitude, location.longitude)
             if (!view.overlays.contains(radarOverlay)) {
-                view.overlays.add(0, radarOverlay)
+                view.overlays.add(radarOverlay)
             }
             if (!view.overlays.contains(userMarker)) {
                 view.overlays.add(userMarker)
@@ -474,18 +514,26 @@ private fun RadarMapView(location: UserLocation, modifier: Modifier = Modifier) 
     )
 }
 
-private fun createRainViewerOverlay(context: Context): TilesOverlay {
+private fun createRainViewerOverlay(
+    context: Context,
+    frame: RainRadarFrame
+): TilesOverlay {
     val appContext = context.applicationContext
+    val normalizedHost = frame.host.trimEnd('/')
+    val normalizedPath = frame.path.trimStart('/')
     val tileSource = object : OnlineTileSourceBase(
         "RAIN_VIEWER",
         3,
-        12,
-        256,
+        10,
+        RAIN_TILE_SIZE,
         ".png",
-        arrayOf(RAIN_VIEWER_BASE_URL)
+        arrayOf(normalizedHost)
     ) {
-        override fun getTileURLString(pTile: MapTile): String {
-            return "${RAIN_VIEWER_BASE_URL}${pTile.zoomLevel}/${pTile.x}/${pTile.y}/2/1_1.png"
+        override fun getTileURLString(pMapTileIndex: Long): String {
+            val zoom = MapTileIndex.getZoom(pMapTileIndex)
+            val x = MapTileIndex.getX(pMapTileIndex)
+            val y = MapTileIndex.getY(pMapTileIndex)
+            return "$normalizedHost/$normalizedPath/$RAIN_TILE_SIZE/$zoom/$x/$y/$DEFAULT_RAIN_COLOR_SCHEME/$DEFAULT_RAIN_OPTIONS.png"
         }
     }
     val tileProvider = MapTileProviderBasic(appContext, tileSource).apply {
@@ -494,11 +542,12 @@ private fun createRainViewerOverlay(context: Context): TilesOverlay {
     return TilesOverlay(tileProvider, appContext).apply {
         loadingBackgroundColor = AndroidColor.TRANSPARENT
         loadingLineColor = AndroidColor.TRANSPARENT
-        setAlpha(0.7f)
     }
 }
 
-private const val RAIN_VIEWER_BASE_URL = "https://tilecache.rainviewer.com/v2/radar/nowcast/latest/256/"
+private const val RAIN_TILE_SIZE = 256
+private const val DEFAULT_RAIN_COLOR_SCHEME = 3
+private const val DEFAULT_RAIN_OPTIONS = "1_0"
 
 @Composable
 private fun DailyForecastCard(day: DailyForecast) {
