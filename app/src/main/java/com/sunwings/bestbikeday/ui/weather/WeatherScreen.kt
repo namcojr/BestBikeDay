@@ -52,7 +52,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -60,6 +59,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sunwings.bestbikeday.data.model.DailyForecast
 import com.sunwings.bestbikeday.data.model.RainRadarFrame
 import com.sunwings.bestbikeday.location.awaitBestLocation
@@ -447,7 +447,7 @@ private fun RadarMapView(
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             setTilesScaledToDpi(true)
             // RainViewer tiles cap at zoom level 10 per their latest policy.
-            setMaxZoomLevel(10.0)
+            maxZoomLevel = 10.0
         }
     }
     val radarOverlay = remember(context, rainFrame) {
@@ -521,8 +521,9 @@ private fun createRainViewerOverlay(
     val appContext = context.applicationContext
     val normalizedHost = frame.host.trimEnd('/')
     val normalizedPath = frame.path.trimStart('/')
+    val tileSourceName = "RAIN_VIEWER_${frame.timestamp}"
     val tileSource = object : OnlineTileSourceBase(
-        "RAIN_VIEWER",
+        tileSourceName,
         3,
         10,
         RAIN_TILE_SIZE,

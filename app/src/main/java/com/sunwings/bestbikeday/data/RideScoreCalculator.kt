@@ -11,13 +11,13 @@ import kotlin.math.roundToInt
  * precipitation risk, and wind impact. Output is 0-100 where 100 is ideal conditions.
  */
 object RideScoreCalculator {
-    private const val OPTIMAL_TEMP_C = 22.0
+    private const val OPTIMAL_TEMP_C = 25.0
     private const val TEMP_TOLERANCE_C = 15.0
     private const val MAX_REASONABLE_WIND_KPH = 45.0
 
-    private const val TEMP_WEIGHT = 0.3
-    private const val RAIN_WEIGHT = 0.55
-    private const val WIND_WEIGHT = 0.15
+    private const val TEMP_WEIGHT = 0.35
+    private const val RAIN_WEIGHT = 0.45
+    private const val WIND_WEIGHT = 0.25
     private const val RAIN_PROBABILITY_THRESHOLD = 25
     private const val RAIN_LOG_STEEPNESS = 400.0
     private val RAIN_LOG_DENOMINATOR = ln(1 + RAIN_LOG_STEEPNESS)
@@ -117,7 +117,7 @@ object RideScoreCalculator {
         return logScaledGrowth(normalized.coerceIn(0.0, 1.0))
     }
 
-    // Gently escalates rain severity once the 30% threshold is crossed so 50% feels
+    // Gently escalates rain severity once the 25% threshold is crossed so 50% feels
     // almost certain while 90% nearly maxes out the penalty.
     private fun logScaledGrowth(normalizedProbability: Double): Double {
         if (normalizedProbability <= 0.0) return 0.0
