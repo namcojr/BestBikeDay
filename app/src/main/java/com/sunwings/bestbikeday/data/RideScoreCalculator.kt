@@ -31,9 +31,9 @@ object RideScoreCalculator {
             ComfortAnchor(22.0, 0.9),
             ComfortAnchor(25.0, 1.0),
             ComfortAnchor(27.0, 1.0),
-            ComfortAnchor(30.0, 0.85),
-            ComfortAnchor(32.0, 0.65),
-            ComfortAnchor(35.0, 0.2),
+            ComfortAnchor(30.0, 0.90),
+            ComfortAnchor(32.0, 0.75),
+            ComfortAnchor(35.0, 0.35),
             ComfortAnchor(40.0, 0.05)
         )
     private const val RAIN_PROBABILITY_THRESHOLD = 25
