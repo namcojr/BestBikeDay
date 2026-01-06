@@ -1,23 +1,41 @@
 package com.sunwings.bestbikeday.data
 
-import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
- * Simple heuristic that rates how ride-friendly a day is by blending temperature comfort,
- * precipitation risk, and wind impact. Output is 0-100 where 100 is ideal conditions.
+ * Simple heuristic that rates how ride-friendly a day is by using temperature comfort as the
+ * baseline and modulating it with precipitation risk and wind impact. Output is 0-100 where 100 is
+ * ideal conditions.
  */
 object RideScoreCalculator {
-    private const val OPTIMAL_TEMP_C = 25.0
-    private const val TEMP_TOLERANCE_C = 15.0
+    private const val OPTIMAL_TEMP_C = 26.0
     private const val MAX_REASONABLE_WIND_KPH = 45.0
 
-    private const val TEMP_WEIGHT = 0.35
-    private const val RAIN_WEIGHT = 0.45
-    private const val WIND_WEIGHT = 0.25
+    private const val CONDITION_MODIFIER_MIN = 0.4
+    private const val CONDITION_MODIFIER_MAX = 1.0
+
+    private const val RAIN_WEIGHT = 0.7
+    private const val WIND_WEIGHT = 0.3
+
+    private val TEMPERATURE_COMFORT_CURVE =
+        listOf(
+            ComfortAnchor(-10.0, 0.0),
+            ComfortAnchor(0.0, 0.05),
+            ComfortAnchor(5.0, 0.1),
+            ComfortAnchor(10.0, 0.15),
+            ComfortAnchor(15.0, 0.55),
+            ComfortAnchor(20.0, 0.82),
+            ComfortAnchor(22.0, 0.9),
+            ComfortAnchor(25.0, 1.0),
+            ComfortAnchor(27.0, 1.0),
+            ComfortAnchor(30.0, 0.85),
+            ComfortAnchor(32.0, 0.65),
+            ComfortAnchor(35.0, 0.2),
+            ComfortAnchor(40.0, 0.05)
+        )
     private const val RAIN_PROBABILITY_THRESHOLD = 25
     private const val RAIN_LOG_STEEPNESS = 400.0
     private val RAIN_LOG_DENOMINATOR = ln(1 + RAIN_LOG_STEEPNESS)
@@ -33,9 +51,13 @@ object RideScoreCalculator {
         val rainScore = rainComponent(precipitationChance)
         val windScore = windComponent(maxWindSpeedKph)
 
-        val blended = (tempScore * TEMP_WEIGHT) +
-            (rainScore * RAIN_WEIGHT) +
-            (windScore * WIND_WEIGHT)
+        val conditionsSuitability = combinedConditionSuitability(rainScore, windScore)
+        val modifier = lerp(
+            CONDITION_MODIFIER_MIN,
+            CONDITION_MODIFIER_MAX,
+            conditionsSuitability
+        )
+        val blended = tempScore * modifier
 
         val severityPenalty = weatherSeverityPenalty(
             weatherCode = weatherCode,
@@ -54,9 +76,7 @@ object RideScoreCalculator {
             ?.average()
             ?: OPTIMAL_TEMP_C
 
-        val delta = abs(avgTemp - OPTIMAL_TEMP_C)
-        val normalized = 1 - (delta / TEMP_TOLERANCE_C)
-        return normalized.coerceIn(0.0, 1.0)
+        return temperatureComfortScore(avgTemp)
     }
 
     private fun rainComponent(precipitationChance: Int): Double {
@@ -69,6 +89,14 @@ object RideScoreCalculator {
         val clamped = maxWindSpeedKph.coerceIn(0.0, MAX_REASONABLE_WIND_KPH)
         val normalized = 1 - (clamped / MAX_REASONABLE_WIND_KPH)
         return normalized.coerceIn(0.0, 1.0).pow(1.4)
+    }
+
+    private fun combinedConditionSuitability(
+        rainScore: Double,
+        windScore: Double
+    ): Double {
+        val weighted = (rainScore * RAIN_WEIGHT) + (windScore * WIND_WEIGHT)
+        return weighted.coerceIn(0.0, 1.0)
     }
 
     private fun weatherSeverityPenalty(
@@ -124,4 +152,24 @@ object RideScoreCalculator {
         val numerator = ln(1 + RAIN_LOG_STEEPNESS * normalizedProbability)
         return (numerator / RAIN_LOG_DENOMINATOR).coerceIn(0.0, 1.0)
     }
+
+    private fun temperatureComfortScore(tempC: Double): Double {
+        val anchors = TEMPERATURE_COMFORT_CURVE
+        val clampedTemp = tempC.coerceIn(anchors.first().tempC, anchors.last().tempC)
+        val upperIndex = anchors.indexOfFirst { clampedTemp <= it.tempC }
+        if (upperIndex == -1) return anchors.last().score
+        if (upperIndex == 0) return anchors.first().score
+        val lower = anchors[upperIndex - 1]
+        val upper = anchors[upperIndex]
+        if (upper.tempC == lower.tempC) return upper.score
+        val fraction = (clampedTemp - lower.tempC) / (upper.tempC - lower.tempC)
+        return lerp(lower.score, upper.score, fraction).coerceIn(0.0, 1.0)
+    }
+
+    private fun lerp(start: Double, end: Double, fraction: Double): Double {
+        val clampedFraction = fraction.coerceIn(0.0, 1.0)
+        return start + (end - start) * clampedFraction
+    }
 }
+
+private data class ComfortAnchor(val tempC: Double, val score: Double)
