@@ -1,3 +1,4 @@
+![Forecast Screen](https://sunwingsexpress.com/media/bestbikeday/main.png) ![Rain Radar Screen](https://sunwingsexpress.com/media/bestbikeday/radar.png)
 # Best Bike Day
 
 Best Bike Day is an Android app that helps cyclists decide whether it is a good day to ride by combining a 7-day weather forecast, bike-friendly ride scoring, and a live rain radar. The experience is entirely Jetpack Compose-based, location-aware, and optimized for quick at-a-glance decisions before you head out.
