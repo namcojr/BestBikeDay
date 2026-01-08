@@ -45,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,6 +71,9 @@ import com.sunwings.bestbikeday.location.hasLocationPermission
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.delay
+import kotlin.math.max
 import kotlin.math.roundToInt
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.MapTileProviderBasic
@@ -90,6 +94,10 @@ fun WeatherRoute(modifier: Modifier = Modifier, viewModel: WeatherViewModel = vi
     var hasPermission by remember { mutableStateOf(context.hasLocationPermission()) }
     var isResolvingLocation by remember { mutableStateOf(false) }
     var refreshToken by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isAppInForeground by remember { mutableStateOf(true) }
+    val lastUpdatedState = rememberUpdatedState(uiState.lastUpdatedEpochMillis)
+    val hasPermissionState = rememberUpdatedState(hasPermission)
 
     val permissionLauncher =
             rememberLauncherForActivityResult(
@@ -102,6 +110,38 @@ fun WeatherRoute(modifier: Modifier = Modifier, viewModel: WeatherViewModel = vi
                 }
             }
 
+    DisposableEffect(lifecycleOwner) {
+        var backgroundedAt: Long? = null
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    isAppInForeground = true
+                    val lastUpdated = lastUpdatedState.value
+                    val backgroundMoment = backgroundedAt
+                    val now = System.currentTimeMillis()
+                    if (
+                        lastUpdated != null &&
+                            backgroundMoment != null &&
+                            hasPermissionState.value &&
+                            now - backgroundMoment >= IDLE_REFRESH_THRESHOLD_MILLIS &&
+                            now - lastUpdated >= IDLE_REFRESH_THRESHOLD_MILLIS
+                    ) {
+                        refreshToken++
+                    }
+                    backgroundedAt = null
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    isAppInForeground = false
+                    backgroundedAt = System.currentTimeMillis()
+                }
+                else -> {}
+            }
+        }
+        val lifecycle = lifecycleOwner.lifecycle
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(hasPermission, refreshToken) {
         if (hasPermission) {
             isResolvingLocation = true
@@ -112,6 +152,21 @@ fun WeatherRoute(modifier: Modifier = Modifier, viewModel: WeatherViewModel = vi
             } else {
                 viewModel.reportLocationIssue("Unable to determine your location. Try refreshing.")
             }
+        }
+    }
+
+    LaunchedEffect(uiState.lastUpdatedEpochMillis, hasPermission, isAppInForeground) {
+        val lastUpdated = uiState.lastUpdatedEpochMillis ?: return@LaunchedEffect
+        if (!hasPermission || !isAppInForeground) return@LaunchedEffect
+        val elapsed = System.currentTimeMillis() - lastUpdated
+        val remaining = max(0L, IDLE_REFRESH_THRESHOLD_MILLIS - elapsed)
+        if (remaining > 0L) {
+            delay(remaining)
+        }
+        if (!isAppInForeground || !hasPermission) return@LaunchedEffect
+        val latestTimestamp = viewModel.uiState.value.lastUpdatedEpochMillis ?: return@LaunchedEffect
+        if (System.currentTimeMillis() - latestTimestamp >= IDLE_REFRESH_THRESHOLD_MILLIS) {
+            refreshToken++
         }
     }
 
@@ -136,6 +191,9 @@ private val locationPermissions =
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION
         )
+
+private const val IDLE_REFRESH_MINUTES = 30L
+private val IDLE_REFRESH_THRESHOLD_MILLIS = TimeUnit.MINUTES.toMillis(IDLE_REFRESH_MINUTES)
 
 @Composable
 private fun WeatherScreen(

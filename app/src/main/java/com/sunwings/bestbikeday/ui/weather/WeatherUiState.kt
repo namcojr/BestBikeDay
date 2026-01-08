@@ -8,7 +8,8 @@ data class WeatherUiState(
     val forecast: List<DailyForecast> = emptyList(),
     val errorMessage: String? = null,
     val userLocation: UserLocation? = null,
-    val rainFrame: RainRadarFrame? = null
+    val rainFrame: RainRadarFrame? = null,
+    val lastUpdatedEpochMillis: Long? = null
 )
 
 data class UserLocation(val latitude: Double, val longitude: Double)

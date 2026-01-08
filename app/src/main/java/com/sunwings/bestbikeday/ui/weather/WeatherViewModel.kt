@@ -40,13 +40,15 @@ class WeatherViewModel(
             runCatching {
                 repository.getWeeklyForecast(latitude, longitude)
             }.onSuccess { dailyForecast ->
+                val updateTimestamp = System.currentTimeMillis()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         forecast = dailyForecast,
                         errorMessage = null,
                         userLocation = newLocation,
-                        rainFrame = radarFrame ?: it.rainFrame
+                        rainFrame = radarFrame ?: it.rainFrame,
+                        lastUpdatedEpochMillis = updateTimestamp
                     )
                 }
             }.onFailure { throwable ->
