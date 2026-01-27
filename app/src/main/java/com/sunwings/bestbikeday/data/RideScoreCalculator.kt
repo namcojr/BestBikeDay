@@ -51,13 +51,24 @@ object RideScoreCalculator {
         val rainScore = rainComponent(precipitationChance)
         val windScore = windComponent(maxWindSpeedKph)
 
+        // If rain and wind are both favorable (low rain chance, low wind),
+        // slightly uplift the temperature component so mildly cool days (e.g. ~15°C)
+        // don't feel overly penalized. This is a very small adjustment.
+        val favorableConditions = (rainScore >= 0.07 && windScore >= 0.07)
+        val tempScoreAdjusted = if (favorableConditions && tempScore < 0.85) {
+            val upliftFraction = 0.08 // 8% of remaining gap to perfect
+            (tempScore + (1.0 - tempScore) * upliftFraction).coerceIn(0.0, 1.0)
+        } else {
+            tempScore
+        }
+
         val conditionsSuitability = combinedConditionSuitability(rainScore, windScore)
         val modifier = lerp(
             CONDITION_MODIFIER_MIN,
             CONDITION_MODIFIER_MAX,
             conditionsSuitability
         )
-        val blended = tempScore * modifier
+        val blended = tempScoreAdjusted * modifier
 
         val severityPenalty = weatherSeverityPenalty(
             weatherCode = weatherCode,

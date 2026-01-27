@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -25,11 +26,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Air
 import androidx.compose.material.icons.rounded.DeviceThermostat
 import androidx.compose.material.icons.rounded.InvertColors
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,7 +57,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -63,6 +68,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.sunwings.bestbikeday.R
 import com.sunwings.bestbikeday.data.model.DailyForecast
 import com.sunwings.bestbikeday.data.model.RainRadarFrame
 import com.sunwings.bestbikeday.location.awaitBestLocation
@@ -72,9 +78,9 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.delay
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
@@ -119,12 +125,11 @@ fun WeatherRoute(modifier: Modifier = Modifier, viewModel: WeatherViewModel = vi
                     val lastUpdated = lastUpdatedState.value
                     val backgroundMoment = backgroundedAt
                     val now = System.currentTimeMillis()
-                    if (
-                        lastUpdated != null &&
-                            backgroundMoment != null &&
-                            hasPermissionState.value &&
-                            now - backgroundMoment >= IDLE_REFRESH_THRESHOLD_MILLIS &&
-                            now - lastUpdated >= IDLE_REFRESH_THRESHOLD_MILLIS
+                    if (lastUpdated != null &&
+                                    backgroundMoment != null &&
+                                    hasPermissionState.value &&
+                                    now - backgroundMoment >= IDLE_REFRESH_THRESHOLD_MILLIS &&
+                                    now - lastUpdated >= IDLE_REFRESH_THRESHOLD_MILLIS
                     ) {
                         refreshToken++
                     }
@@ -164,7 +169,8 @@ fun WeatherRoute(modifier: Modifier = Modifier, viewModel: WeatherViewModel = vi
             delay(remaining)
         }
         if (!isAppInForeground || !hasPermission) return@LaunchedEffect
-        val latestTimestamp = viewModel.uiState.value.lastUpdatedEpochMillis ?: return@LaunchedEffect
+        val latestTimestamp =
+                viewModel.uiState.value.lastUpdatedEpochMillis ?: return@LaunchedEffect
         if (System.currentTimeMillis() - latestTimestamp >= IDLE_REFRESH_THRESHOLD_MILLIS) {
             refreshToken++
         }
@@ -219,11 +225,7 @@ private fun WeatherScreen(
                                 colorScheme.surfaceVariant.copy(alpha = 0.9f),
                                 colorScheme.background
                         )
-                val darkColors =
-                        listOf(
-                                colorScheme.surface.copy(),
-                                colorScheme.surface.copy()
-                        )
+                val darkColors = listOf(colorScheme.surface.copy(), colorScheme.surface.copy())
                 Brush.verticalGradient(if (isDarkMode) darkColors else lightColors)
             }
 
@@ -243,14 +245,15 @@ private fun WeatherScreen(
                 Column(
                         modifier =
                                 Modifier.fillMaxWidth()
-                                        .padding(horizontal = 24.dp)
-                                        .padding(top = 64.dp, bottom = 24.dp)
+                                        .padding(horizontal = 12.dp)
+                                        .padding(top = 64.dp)
                 ) {
-                    Text(
-                            text = "Best Bike Day",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Image(
+                            painter = painterResource(id = R.drawable.banner),
+                            contentDescription = "Banner",
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.FillWidth
                     )
                 }
             }
@@ -282,8 +285,8 @@ private fun WeatherScreen(
                                         showRadar = !showRadar
                                     }
                                 },
-                            userLocation = uiState.userLocation,
-                            rainFrame = uiState.rainFrame
+                                userLocation = uiState.userLocation,
+                                rainFrame = uiState.rainFrame
                         )
             }
         }
@@ -309,7 +312,15 @@ private fun PermissionRequestCard(onRequestPermission: () -> Unit) {
                             "We use your approximate location to fetch the most accurate local weather.",
                     style = MaterialTheme.typography.bodyMedium
             )
-            Button(onClick = onRequestPermission) { Text(text = "Grant permission") }
+            Button(
+                    onClick = onRequestPermission,
+                    shape = RoundedCornerShape(8.dp),
+                    colors =
+                            ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF1565C0),
+                                    contentColor = Color.White
+                            )
+            ) { Text(text = "Grant permission") }
         }
     }
 }
@@ -345,7 +356,15 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
                 color = MaterialTheme.colorScheme.error
         )
         Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onRetry) { Text(text = "Try again") }
+        Button(
+                onClick = onRetry,
+                shape = RoundedCornerShape(8.dp),
+                colors =
+                        ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1565C0),
+                                contentColor = Color.White
+                        )
+        ) { Text(text = "Try again") }
     }
 }
 
@@ -358,7 +377,15 @@ private fun EmptyState(onRefresh: () -> Unit) {
     ) {
         Text(text = "No forecast available yet.", style = MaterialTheme.typography.bodyLarge)
         Spacer(modifier = Modifier.height(12.dp))
-        Button(onClick = onRefresh) { Text(text = "Refresh") }
+        Button(
+                onClick = onRefresh,
+                shape = RoundedCornerShape(8.dp),
+                colors =
+                        ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1565C0),
+                                contentColor = Color.White
+                        )
+        ) { Text(text = "Refresh") }
     }
 }
 
@@ -370,8 +397,8 @@ private fun ForecastOrRadarSection(
         showingRadar: Boolean,
         canShowRadar: Boolean,
         onToggleRadar: () -> Unit,
-    userLocation: UserLocation?,
-    rainFrame: RainRadarFrame?
+        userLocation: UserLocation?,
+        rainFrame: RainRadarFrame?
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         HeaderActions(
@@ -379,14 +406,14 @@ private fun ForecastOrRadarSection(
                 onRefresh = onRefresh,
                 showingRadar = showingRadar,
                 canShowRadar = canShowRadar,
-            onToggleRadar = onToggleRadar
+                onToggleRadar = onToggleRadar
         )
         Spacer(modifier = Modifier.height(16.dp))
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             if (showingRadar && canShowRadar) {
                 RadarMapCard(
                         userLocation = userLocation,
-                    rainFrame = rainFrame,
+                        rainFrame = rainFrame,
                         modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -405,17 +432,17 @@ private fun ForecastCardsList(forecast: List<DailyForecast>, modifier: Modifier 
 
 @Composable
 private fun HeaderActions(
-    isRefreshing: Boolean,
-    onRefresh: () -> Unit,
-    showingRadar: Boolean,
-    canShowRadar: Boolean,
-    onToggleRadar: () -> Unit
+        isRefreshing: Boolean,
+        onRefresh: () -> Unit,
+        showingRadar: Boolean,
+        canShowRadar: Boolean,
+        onToggleRadar: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-                text = if (isRefreshing) "Updating forecast..." else "Forecast updated",
+                text = if (isRefreshing) "Updating forecast..." else "",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(modifier = Modifier.height(8.dp))
         Row(
@@ -425,20 +452,34 @@ private fun HeaderActions(
             Button(
                     onClick = onToggleRadar,
                     enabled = canShowRadar,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors =
+                            ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF1565C0),
+                                    contentColor = Color.White
+                            )
             ) { Text(text = if (showingRadar) "Forecasts" else "Rain Radar") }
-            Button(onClick = onRefresh, enabled = !isRefreshing, modifier = Modifier.weight(1f)) {
-                Text(text = if (isRefreshing) "Refreshing" else "Refresh forecast")
-            }
+            Button(
+                    onClick = onRefresh,
+                    enabled = !isRefreshing,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors =
+                            ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF1565C0),
+                                    contentColor = Color.White
+                            )
+            ) { Text(text = if (isRefreshing) "Refreshing" else "Refresh forecast") }
         }
     }
 }
 
 @Composable
 private fun RadarMapCard(
-    userLocation: UserLocation?,
-    rainFrame: RainRadarFrame?,
-    modifier: Modifier = Modifier
+        userLocation: UserLocation?,
+        rainFrame: RainRadarFrame?,
+        modifier: Modifier = Modifier
 ) {
     Card(
             modifier = modifier,
@@ -449,8 +490,8 @@ private fun RadarMapCard(
             if (userLocation != null && rainFrame != null) {
                 RadarMapView(
                         location = userLocation,
-                    rainFrame = rainFrame,
-                    colorScheme = DEFAULT_RAIN_COLOR_SCHEME,
+                        rainFrame = rainFrame,
+                        colorScheme = DEFAULT_RAIN_COLOR_SCHEME,
                         modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -478,10 +519,10 @@ private fun RadarMapCard(
 
 @Composable
 private fun RadarMapView(
-    location: UserLocation,
-    rainFrame: RainRadarFrame,
-    colorScheme: Int,
-    modifier: Modifier = Modifier
+        location: UserLocation,
+        rainFrame: RainRadarFrame,
+        colorScheme: Int,
+        modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -587,9 +628,9 @@ private fun RadarMapView(
 }
 
 private fun createRainViewerOverlay(
-    mapView: MapView,
-    frame: RainRadarFrame,
-    colorScheme: Int
+        mapView: MapView,
+        frame: RainRadarFrame,
+        colorScheme: Int
 ): TilesOverlay {
     val appContext = mapView.context.applicationContext
     val normalizedHost = frame.host.trimEnd('/')
@@ -614,11 +655,12 @@ private fun createRainViewerOverlay(
             }
     val tileProvider =
             MapTileProviderBasic(appContext, tileSource).apply { setUseDataConnection(true) }
-    val redrawHandler = object : Handler(Looper.getMainLooper()) {
-        override fun handleMessage(msg: Message) {
-            mapView.postInvalidateOnAnimation()
-        }
-    }
+    val redrawHandler =
+            object : Handler(Looper.getMainLooper()) {
+                override fun handleMessage(msg: Message) {
+                    mapView.postInvalidateOnAnimation()
+                }
+            }
     tileProvider.tileRequestCompleteHandlers.add(redrawHandler)
     return TilesOverlay(tileProvider, appContext).apply {
         setUseDataConnection(true)
