@@ -546,10 +546,10 @@ private fun RadarMapView(
                 Marker(mapView).apply {
                     title = "You are here"
                     icon =
-                            AppCompatResources.getDrawable(
-                                    context,
-                                    org.osmdroid.library.R.drawable.marker_default
-                            )
+                        AppCompatResources.getDrawable(
+                            context,
+                            R.drawable.pin
+                        )
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                 }
             }
@@ -609,6 +609,10 @@ private fun RadarMapView(
                 }
                 userMarker.position = newPoint
 
+                // Ensure the user marker is drawn on top of overlays (move to end).
+                view.overlays.remove(userMarker)
+                view.overlays.add(userMarker)
+
                 val previous = lastCameraLocation.value
                 if (previous == null) {
                     view.controller.setZoom(9.0)
@@ -622,6 +626,9 @@ private fun RadarMapView(
                 view.post {
                     view.invalidate()
                     view.postInvalidateOnAnimation()
+                    // Trigger a one-time refresh to ensure tiles are fetched when the map
+                    // is first displayed (works around initial-no-update issue).
+                    refreshRadarOverlayIfNeeded(view, radarOverlay)
                 }
             }
     )
@@ -662,16 +669,84 @@ private fun createRainViewerOverlay(
                 }
             }
     tileProvider.tileRequestCompleteHandlers.add(redrawHandler)
-    return TilesOverlay(tileProvider, appContext).apply {
+    val overlay = TilesOverlay(tileProvider, appContext).apply {
         setUseDataConnection(true)
         loadingBackgroundColor = AndroidColor.TRANSPARENT
         loadingLineColor = AndroidColor.TRANSPARENT
     }
+
+    // Try to set a slight transparency so underlying map is visible.
+    // Use reflection to support multiple osmdroid versions (`setOpacity(float)` or `setAlpha(int)`).
+    val alphaInt = (0.6f * 255).toInt()
+    try {
+        // try primitive float first
+        try {
+            val m = overlay.javaClass.getMethod("setOpacity", java.lang.Float.TYPE)
+            m.invoke(overlay, 0.6f)
+        } catch (_: NoSuchMethodException) {
+            // try boxed Float
+            try {
+                val m = overlay.javaClass.getMethod("setOpacity", java.lang.Float::class.java)
+                m.invoke(overlay, java.lang.Float.valueOf(0.6f))
+            } catch (_: NoSuchMethodException) {
+                // try primitive int (0-255)
+                try {
+                    val m = overlay.javaClass.getMethod("setAlpha", java.lang.Integer.TYPE)
+                    m.invoke(overlay, alphaInt)
+                } catch (_: NoSuchMethodException) {
+                    // try boxed Integer
+                    try {
+                        val m = overlay.javaClass.getMethod("setAlpha", java.lang.Integer::class.java)
+                        m.invoke(overlay, Integer.valueOf(alphaInt))
+                    } catch (_: Exception) {
+                        // no-op if none available
+                    }
+                } catch (_: Exception) {
+                    // ignore
+                }
+            } catch (_: Exception) {
+                // ignore
+            }
+        } catch (_: Exception) {
+            // ignore
+        }
+    } catch (_: Exception) {
+        // ignore any unexpected reflection issues
+    }
+
+    return overlay
 }
 
 private const val RAIN_TILE_SIZE = 256
 private const val DEFAULT_RAIN_COLOR_SCHEME = 5 // "Ice" palette from RainViewer docs
 private const val DEFAULT_RAIN_OPTIONS = "1_0"
+
+// Ensure the radar overlay requests tiles at least once when the map is first shown.
+// This flag tracks whether we've done that initial refresh during this app session.
+@Volatile
+private var hasPerformedInitialRadarRefresh = false
+
+private fun refreshRadarOverlayIfNeeded(mapView: MapView, overlay: TilesOverlay) {
+    if (hasPerformedInitialRadarRefresh) return
+    // Run on UI thread to avoid concurrency issues with overlays list.
+    mapView.post {
+        try {
+            // Remove and re-add the overlay to force tiles to be requested.
+            if (mapView.overlays.contains(overlay)) {
+                mapView.overlays.remove(overlay)
+                mapView.invalidate()
+            }
+            mapView.post {
+                if (!mapView.overlays.contains(overlay)) {
+                    mapView.overlays.add(overlay)
+                }
+                mapView.invalidate()
+            }
+        } finally {
+            hasPerformedInitialRadarRefresh = true
+        }
+    }
+}
 
 @Composable
 private fun DailyForecastCard(day: DailyForecast) {
