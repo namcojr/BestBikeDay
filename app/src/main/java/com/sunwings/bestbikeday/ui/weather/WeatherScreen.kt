@@ -64,6 +64,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -82,6 +83,9 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -246,7 +250,7 @@ private fun WeatherScreen(
                         modifier =
                                 Modifier.fillMaxWidth()
                                         .padding(horizontal = 12.dp)
-                                        .padding(top = 64.dp)
+                                        .padding(top = 56.dp)
                 ) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Image(
@@ -444,7 +448,6 @@ private fun HeaderActions(
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
         )
-        Spacer(modifier = Modifier.height(8.dp))
         Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -533,8 +536,7 @@ private fun RadarMapView(
                     setMultiTouchControls(true)
                     zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
                     setTilesScaledToDpi(true)
-                    // RainViewer tiles cap at zoom level 10 per their latest policy.
-                    maxZoomLevel = 10.0
+                    maxZoomLevel = 12.0
                 }
             }
     val radarOverlay =
@@ -555,6 +557,8 @@ private fun RadarMapView(
             }
     val lastCameraLocation = remember { mutableStateOf<GeoPoint?>(null) }
     val activeRadarOverlay = remember { mutableStateOf<TilesOverlay?>(null) }
+    val zoomLevelState = remember { mutableStateOf(mapView.zoomLevelDouble) }
+    val hasRefreshedRadar = remember { mutableStateOf(false) }
 
     LaunchedEffect(context) {
         val appContext = context.applicationContext
@@ -562,12 +566,8 @@ private fun RadarMapView(
     }
 
     LaunchedEffect(rainFrame.timestamp, colorScheme) {
-        mapView.invalidate()
-        mapView.postInvalidateOnAnimation()
-        mapView.post {
-            mapView.invalidate()
-            mapView.postInvalidateOnAnimation()
-        }
+        // Request a single UI refresh when the rain frame or color changes.
+        mapView.post { mapView.invalidate() }
     }
 
     DisposableEffect(mapView, lifecycleOwner) {
@@ -581,58 +581,95 @@ private fun RadarMapView(
             }
         }
         lifecycle.addObserver(observer)
+        val mapListener =
+                object : MapListener {
+                    override fun onScroll(event: ScrollEvent?): Boolean = false
+
+                    override fun onZoom(event: ZoomEvent?): Boolean {
+                        zoomLevelState.value = event?.zoomLevel ?: mapView.zoomLevelDouble
+                        return false
+                    }
+                }
+        mapView.addMapListener(mapListener)
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
             mapView.onResume()
         }
         onDispose {
             lifecycle.removeObserver(observer)
+            mapView.removeMapListener(mapListener)
             mapView.onPause()
             mapView.onDetach()
         }
     }
 
-    AndroidView(
-            modifier = modifier,
-            factory = { mapView },
-            update = { view: MapView ->
-                val newPoint = GeoPoint(location.latitude, location.longitude)
-                val previousOverlay = activeRadarOverlay.value
-                if (previousOverlay != null && previousOverlay !== radarOverlay) {
-                    view.overlays.remove(previousOverlay)
-                }
-                if (!view.overlays.contains(radarOverlay)) {
-                    view.overlays.add(radarOverlay)
-                }
-                activeRadarOverlay.value = radarOverlay
-                if (!view.overlays.contains(userMarker)) {
+    Box(modifier = modifier) {
+        AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { mapView },
+                update = { view: MapView ->
+                    val newPoint = GeoPoint(location.latitude, location.longitude)
+                    val previousOverlay = activeRadarOverlay.value
+                    if (previousOverlay != null && previousOverlay !== radarOverlay) {
+                        view.overlays.remove(previousOverlay)
+                    }
+                    if (!view.overlays.contains(radarOverlay)) {
+                        view.overlays.add(radarOverlay)
+                    }
+                    activeRadarOverlay.value = radarOverlay
+                    if (!view.overlays.contains(userMarker)) {
+                        view.overlays.add(userMarker)
+                    }
+                    userMarker.position = newPoint
+
+                    // Ensure the user marker is drawn on top of overlays (move to end).
+                    view.overlays.remove(userMarker)
                     view.overlays.add(userMarker)
-                }
-                userMarker.position = newPoint
 
-                // Ensure the user marker is drawn on top of overlays (move to end).
-                view.overlays.remove(userMarker)
-                view.overlays.add(userMarker)
-
-                val previous = lastCameraLocation.value
-                if (previous == null) {
-                    view.controller.setZoom(9.0)
-                    view.controller.setCenter(newPoint)
-                } else if (previous.distanceToAsDouble(newPoint) > 50) {
-                    view.controller.animateTo(newPoint)
+                    val previous = lastCameraLocation.value
+                    if (previous == null) {
+                        view.controller.setZoom(RAIN_FIXED_ZOOM.toDouble())
+                        view.controller.setCenter(newPoint)
+                    } else if (previous.distanceToAsDouble(newPoint) > 50) {
+                        view.controller.animateTo(newPoint)
+                    }
+                    lastCameraLocation.value = newPoint
+                    zoomLevelState.value = view.zoomLevelDouble
+                    // One scheduled refresh/invalidate is sufficient; avoid thrashing the UI thread.
+                    view.post { view.invalidate() }
+                    if (!hasRefreshedRadar.value) {
+                        view.postDelayed(
+                                {
+                                    refreshRadarOverlay(view, radarOverlay, userMarker)
+                                    hasRefreshedRadar.value = true
+                                },
+                                250L
+                        )
+                    }
                 }
-                lastCameraLocation.value = newPoint
-                view.invalidate()
-                view.postInvalidateOnAnimation()
-                view.post {
-                    view.invalidate()
-                    view.postInvalidateOnAnimation()
-                    // Trigger a one-time refresh to ensure tiles are fetched when the map
-                    // is first displayed (works around initial-no-update issue).
-                    refreshRadarOverlayIfNeeded(view, radarOverlay, userMarker)
-                }
-            }
-    )
+        )
+        // RadarDebugOverlay(zoomLevel = zoomLevelState.value)
+    }
 }
+
+// @Composable
+// private fun RadarDebugOverlay(zoomLevel: Double, modifier: Modifier = Modifier) {
+//     Box(
+//             modifier =
+//                     modifier
+//                             .padding(12.dp)
+//                             .background(
+//                                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+//                                     shape = RoundedCornerShape(8.dp)
+//                             )
+//                             .padding(horizontal = 12.dp, vertical = 8.dp)
+//     ) {
+//         Text(
+//                 text = "Zoom: ${String.format(Locale.getDefault(), "%.2f", zoomLevel)}",
+//                 style = MaterialTheme.typography.labelLarge,
+//                 color = MaterialTheme.colorScheme.onSurface
+//         )
+//     }
+// }
 
 private fun createRainViewerOverlay(
         mapView: MapView,
@@ -643,21 +680,34 @@ private fun createRainViewerOverlay(
     val normalizedHost = frame.host.trimEnd('/')
     val normalizedPath = frame.path.trimStart('/')
     val tileSourceName = "RAIN_VIEWER_${frame.timestamp}_$colorScheme"
+    // RainViewer only serves tiles up to zoom 7, but we still want tiles requested
+    // for all zoom levels below that so the overlay is visible when zoomed out.
     val tileSource =
             object :
                     OnlineTileSourceBase(
                             tileSourceName,
-                            3,
-                            10,
+                            RAIN_MIN_ZOOM,
+                            RAIN_FIXED_ZOOM,
                             RAIN_TILE_SIZE,
                             ".png",
                             arrayOf(normalizedHost)
                     ) {
                 override fun getTileURLString(pMapTileIndex: Long): String {
-                    val zoom = MapTileIndex.getZoom(pMapTileIndex)
-                    val x = MapTileIndex.getX(pMapTileIndex)
-                    val y = MapTileIndex.getY(pMapTileIndex)
-                    return "$normalizedHost/$normalizedPath/$RAIN_TILE_SIZE/$zoom/$x/$y/$colorScheme/$DEFAULT_RAIN_OPTIONS.png"
+                    val requestedZoom = MapTileIndex.getZoom(pMapTileIndex)
+                    var x = MapTileIndex.getX(pMapTileIndex)
+                    var y = MapTileIndex.getY(pMapTileIndex)
+                    // For free RainViewer access, restrict requests to a fixed zoom (7).
+                    // Use actual zooms at or below 7, and scale down requests above 7.
+                    val useZoom: Int
+                    if (requestedZoom > RAIN_FIXED_ZOOM) {
+                        val shift = requestedZoom - RAIN_FIXED_ZOOM
+                        x = x shr shift
+                        y = y shr shift
+                        useZoom = RAIN_FIXED_ZOOM
+                    } else {
+                        useZoom = requestedZoom
+                    }
+                    return "$normalizedHost/$normalizedPath/$RAIN_TILE_SIZE/$useZoom/$x/$y/$colorScheme/$DEFAULT_RAIN_OPTIONS.png"
                 }
             }
     val tileProvider =
@@ -676,95 +726,54 @@ private fun createRainViewerOverlay(
     }
 
     // Try to set a slight transparency so underlying map is visible.
-    // Use reflection to support multiple osmdroid versions (`setOpacity(float)` or `setAlpha(int)`).
-    val alphaInt = (0.6f * 255).toInt()
-    try {
-        // try primitive float first
-        try {
-            val m = overlay.javaClass.getMethod("setOpacity", java.lang.Float.TYPE)
-            m.invoke(overlay, 0.6f)
-        } catch (_: NoSuchMethodException) {
-            // try boxed Float
-            try {
-                val m = overlay.javaClass.getMethod("setOpacity", java.lang.Float::class.java)
-                m.invoke(overlay, java.lang.Float.valueOf(0.6f))
-                    } catch (_: NoSuchMethodException) {
-                        // try primitive double
-                        try {
-                            val m = overlay.javaClass.getMethod("setOpacity", java.lang.Double.TYPE)
-                            m.invoke(overlay, 0.6)
-                        } catch (_: NoSuchMethodException) {
-                            // try boxed Double
-                            try {
-                                val m = overlay.javaClass.getMethod("setOpacity", java.lang.Double::class.java)
-                                m.invoke(overlay, java.lang.Double.valueOf(0.6))
-                            } catch (_: NoSuchMethodException) {
-                                // fall through to alpha attempts below
-                            }
-                        } catch (_: Exception) {
-                            // ignore
-                        }
-            } catch (_: NoSuchMethodException) {
-                // try primitive int (0-255)
-                try {
-                    val m = overlay.javaClass.getMethod("setAlpha", java.lang.Integer.TYPE)
-                    m.invoke(overlay, alphaInt)
-                } catch (_: NoSuchMethodException) {
-                    // try boxed Integer
-                    try {
-                        val m = overlay.javaClass.getMethod("setAlpha", java.lang.Integer::class.java)
-                        m.invoke(overlay, Integer.valueOf(alphaInt))
-                    } catch (_: Exception) {
-                        // no-op if none available
-                    }
-                } catch (_: Exception) {
-                    // ignore
-                }
-            } catch (_: Exception) {
-                // ignore
-            }
-        } catch (_: Exception) {
-            // ignore
-        }
-    } catch (_: Exception) {
-        // ignore any unexpected reflection issues
-    }
+    applyOverlayOpacity(overlay, 0.6f)
 
     return overlay
 }
 
 private const val RAIN_TILE_SIZE = 256
+private const val RAIN_MIN_ZOOM = 0
+private const val RAIN_FIXED_ZOOM = 7
 private const val DEFAULT_RAIN_COLOR_SCHEME = 5 // "Ice" palette from RainViewer docs
 private const val DEFAULT_RAIN_OPTIONS = "1_0"
 
-// Ensure the radar overlay requests tiles at least once when the map is first shown.
-// This flag tracks whether we've done that initial refresh during this app session.
-@Volatile
-private var hasPerformedInitialRadarRefresh = false
+private fun applyOverlayOpacity(overlay: TilesOverlay, opacity: Float) {
+    val alphaInt = (opacity * 255).roundToInt()
+    val candidates =
+            listOf(
+                    Triple("setOpacity", java.lang.Float.TYPE, opacity),
+                    Triple("setOpacity", java.lang.Double.TYPE, opacity.toDouble()),
+                    Triple("setAlpha", java.lang.Integer.TYPE, alphaInt)
+            )
+    for ((name, paramType, arg) in candidates) {
+        val method =
+                overlay.javaClass.methods.firstOrNull {
+                    it.name == name && it.parameterTypes.size == 1 && it.parameterTypes[0] == paramType
+                }
+                        ?: continue
+        val result = runCatching { method.invoke(overlay, arg) }
+        if (result.isSuccess) return
+    }
+}
 
-private fun refreshRadarOverlayIfNeeded(mapView: MapView, overlay: TilesOverlay, userMarker: Marker? = null) {
-    if (hasPerformedInitialRadarRefresh) return
+private fun refreshRadarOverlay(mapView: MapView, overlay: TilesOverlay, userMarker: Marker? = null) {
     // Run on UI thread to avoid concurrency issues with overlays list.
     mapView.post {
-        try {
-            // Remove and re-add the overlay to force tiles to be requested.
-            if (mapView.overlays.contains(overlay)) {
-                mapView.overlays.remove(overlay)
-                mapView.invalidate()
+        // Remove and re-add the overlay to force tiles to be requested.
+        if (mapView.overlays.contains(overlay)) {
+            mapView.overlays.remove(overlay)
+            mapView.invalidate()
+        }
+        mapView.post {
+            if (!mapView.overlays.contains(overlay)) {
+                mapView.overlays.add(overlay)
             }
-            mapView.post {
-                if (!mapView.overlays.contains(overlay)) {
-                    mapView.overlays.add(overlay)
-                }
-                // If a user marker was provided, ensure it's on top after re-adding overlay.
-                if (userMarker != null) {
-                    mapView.overlays.remove(userMarker)
-                    mapView.overlays.add(userMarker)
-                }
-                mapView.invalidate()
+            // If a user marker was provided, ensure it's on top after re-adding overlay.
+            if (userMarker != null) {
+                mapView.overlays.remove(userMarker)
+                mapView.overlays.add(userMarker)
             }
-        } finally {
-            hasPerformedInitialRadarRefresh = true
+            mapView.invalidate()
         }
     }
 }
@@ -905,7 +914,8 @@ private fun scoreDescriptor(score: Int): String =
             score >= 70 -> "Great"
             score >= 55 -> "Good"
             score >= 40 -> "Fair"
-            else -> "Poor"
+            score >= 25 -> "Poor"
+            else -> "Bad"
         }
 
 @Composable
@@ -942,4 +952,78 @@ private fun Int.toFraction(): Float = this.coerceIn(0, 100) / 100f
 
 private fun lerpFloat(start: Float, end: Float, fraction: Float): Float {
     return start + (end - start) * fraction
+}
+
+@Preview(showBackground = true, name = "Weather - Forecast")
+@Composable
+private fun WeatherScreenForecastPreview() {
+    MaterialTheme {
+    WeatherScreen(
+        uiState = previewWeatherState(),
+        permissionGranted = true,
+        isRequestingLocation = false,
+        onRequestPermission = {},
+        onRefresh = {}
+    )
+    }
+}
+
+@Preview(showBackground = true, name = "Weather - Empty")
+@Composable
+private fun WeatherScreenEmptyPreview() {
+    MaterialTheme {
+    WeatherScreen(
+        uiState = WeatherUiState(forecast = emptyList()),
+        permissionGranted = true,
+        isRequestingLocation = false,
+        onRequestPermission = {},
+        onRefresh = {}
+    )
+    }
+}
+
+private fun previewWeatherState(): WeatherUiState {
+    val today = LocalDate.now()
+    val sampleForecast =
+        listOf(
+            DailyForecast(
+                date = today,
+                maxTempC = 23.0,
+                minTempC = 14.0,
+                precipitationChance = 15,
+                maxWindSpeedKph = 9.0,
+                weatherCode = 1,
+                conditionDescription = "Mostly clear",
+                rideScore = 88
+            ),
+            DailyForecast(
+                date = today.plusDays(1),
+                maxTempC = 19.0,
+                minTempC = 11.0,
+                precipitationChance = 40,
+                maxWindSpeedKph = 14.0,
+                weatherCode = 61,
+                conditionDescription = "Light rain",
+                rideScore = 62
+            ),
+            DailyForecast(
+                date = today.plusDays(2),
+                maxTempC = 17.0,
+                minTempC = 9.0,
+                precipitationChance = 70,
+                maxWindSpeedKph = 18.0,
+                weatherCode = 63,
+                conditionDescription = "Rain showers",
+                rideScore = 45
+            )
+        )
+
+    return WeatherUiState(
+        isLoading = false,
+        forecast = sampleForecast,
+        errorMessage = null,
+        userLocation = UserLocation(37.7749, -122.4194),
+        rainFrame = null,
+        lastUpdatedEpochMillis = System.currentTimeMillis()
+    )
 }
