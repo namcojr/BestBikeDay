@@ -628,7 +628,7 @@ private fun RadarMapView(
                     view.postInvalidateOnAnimation()
                     // Trigger a one-time refresh to ensure tiles are fetched when the map
                     // is first displayed (works around initial-no-update issue).
-                    refreshRadarOverlayIfNeeded(view, radarOverlay)
+                    refreshRadarOverlayIfNeeded(view, radarOverlay, userMarker)
                 }
             }
     )
@@ -688,6 +688,22 @@ private fun createRainViewerOverlay(
             try {
                 val m = overlay.javaClass.getMethod("setOpacity", java.lang.Float::class.java)
                 m.invoke(overlay, java.lang.Float.valueOf(0.6f))
+                    } catch (_: NoSuchMethodException) {
+                        // try primitive double
+                        try {
+                            val m = overlay.javaClass.getMethod("setOpacity", java.lang.Double.TYPE)
+                            m.invoke(overlay, 0.6)
+                        } catch (_: NoSuchMethodException) {
+                            // try boxed Double
+                            try {
+                                val m = overlay.javaClass.getMethod("setOpacity", java.lang.Double::class.java)
+                                m.invoke(overlay, java.lang.Double.valueOf(0.6))
+                            } catch (_: NoSuchMethodException) {
+                                // fall through to alpha attempts below
+                            }
+                        } catch (_: Exception) {
+                            // ignore
+                        }
             } catch (_: NoSuchMethodException) {
                 // try primitive int (0-255)
                 try {
@@ -726,7 +742,7 @@ private const val DEFAULT_RAIN_OPTIONS = "1_0"
 @Volatile
 private var hasPerformedInitialRadarRefresh = false
 
-private fun refreshRadarOverlayIfNeeded(mapView: MapView, overlay: TilesOverlay) {
+private fun refreshRadarOverlayIfNeeded(mapView: MapView, overlay: TilesOverlay, userMarker: Marker? = null) {
     if (hasPerformedInitialRadarRefresh) return
     // Run on UI thread to avoid concurrency issues with overlays list.
     mapView.post {
@@ -739,6 +755,11 @@ private fun refreshRadarOverlayIfNeeded(mapView: MapView, overlay: TilesOverlay)
             mapView.post {
                 if (!mapView.overlays.contains(overlay)) {
                     mapView.overlays.add(overlay)
+                }
+                // If a user marker was provided, ensure it's on top after re-adding overlay.
+                if (userMarker != null) {
+                    mapView.overlays.remove(userMarker)
+                    mapView.overlays.add(userMarker)
                 }
                 mapView.invalidate()
             }
