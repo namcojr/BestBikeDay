@@ -1,10 +1,12 @@
 package com.sunwings.bestbikeday.data.model
 
+import androidx.compose.runtime.Immutable
 import java.time.LocalDate
 
 /**
  * Domain model representing basic conditions for a single day in the forecast.
  */
+@Immutable
 data class DailyForecast(
     val date: LocalDate,
     val maxTempC: Double,

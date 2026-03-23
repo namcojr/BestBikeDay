@@ -15,7 +15,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -429,8 +429,15 @@ private fun ForecastOrRadarSection(
 
 @Composable
 private fun ForecastCardsList(forecast: List<DailyForecast>, modifier: Modifier = Modifier) {
-    LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(forecast) { day -> DailyForecastCard(day = day) }
+    val listState = rememberLazyListState()
+    LazyColumn(
+            modifier = modifier,
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(items = forecast, key = { it.date.toEpochDay() }, contentType = { "forecast-card" }) {
+            day -> DailyForecastCard(day = day)
+        }
     }
 }
 
@@ -734,7 +741,7 @@ private fun createRainViewerOverlay(
 private const val RAIN_TILE_SIZE = 256
 private const val RAIN_MIN_ZOOM = 0
 private const val RAIN_FIXED_ZOOM = 7
-private const val DEFAULT_RAIN_COLOR_SCHEME = 5 // "Ice" palette from RainViewer docs
+private const val DEFAULT_RAIN_COLOR_SCHEME = 2 // "Ice" palette from RainViewer docs
 private const val DEFAULT_RAIN_OPTIONS = "1_0"
 
 private fun applyOverlayOpacity(overlay: TilesOverlay, opacity: Float) {
@@ -780,6 +787,12 @@ private fun refreshRadarOverlay(mapView: MapView, overlay: TilesOverlay, userMar
 
 @Composable
 private fun DailyForecastCard(day: DailyForecast) {
+    val dayLabel = remember(day.date) { formatDayLabel(day.date) }
+    val temperature = remember(day.maxTempC, day.minTempC) {
+        formatTemperatureRange(day.maxTempC, day.minTempC)
+    }
+    val precipitation = remember(day.precipitationChance) { formatPrecipitation(day.precipitationChance) }
+    val wind = remember(day.maxWindSpeedKph) { formatWindDetailed(day.maxWindSpeedKph) }
     val containerColor = rideScoreContainerColor(day.rideScore)
     val borderColor = rideScoreStrokeColor(day.rideScore).copy(alpha = 0.5f)
 
@@ -795,7 +808,6 @@ private fun DailyForecastCard(day: DailyForecast) {
         Row(
                 modifier =
                         Modifier.fillMaxWidth()
-                                .height(IntrinsicSize.Min)
                                 .padding(start = 20.dp, top = 20.dp, end = 10.dp, bottom = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -804,7 +816,7 @@ private fun DailyForecastCard(day: DailyForecast) {
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(text = formatDayLabel(day.date), style = MaterialTheme.typography.titleMedium)
+                Text(text = dayLabel, style = MaterialTheme.typography.titleMedium)
                 Text(
                         text = day.conditionDescription,
                         style = MaterialTheme.typography.bodyMedium,
@@ -813,17 +825,17 @@ private fun DailyForecastCard(day: DailyForecast) {
                 ForecastDetailRow(
                         icon = Icons.Rounded.DeviceThermostat,
                         label = "Temperature",
-                        value = formatTemperatureRange(day.maxTempC, day.minTempC)
+                    value = temperature
                 )
                 ForecastDetailRow(
                         icon = Icons.Rounded.InvertColors,
                         label = "Rain Chance",
-                        value = formatPrecipitation(day.precipitationChance)
+                    value = precipitation
                 )
                 ForecastDetailRow(
                         icon = Icons.Rounded.Air,
                         label = "Wind",
-                        value = formatWindDetailed(day.maxWindSpeedKph)
+                    value = wind
                 )
             }
             Box(
