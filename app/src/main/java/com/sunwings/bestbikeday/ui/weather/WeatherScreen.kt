@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -56,9 +57,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -280,6 +286,7 @@ private fun WeatherScreen(
                 else ->
                         ForecastOrRadarSection(
                                 forecast = uiState.forecast,
+                        isDarkTheme = isDarkMode,
                                 isRefreshing = uiState.isLoading,
                                 onRefresh = onRefresh,
                                 showingRadar = showRadar,
@@ -396,6 +403,7 @@ private fun EmptyState(onRefresh: () -> Unit) {
 @Composable
 private fun ForecastOrRadarSection(
         forecast: List<DailyForecast>,
+    isDarkTheme: Boolean,
         isRefreshing: Boolean,
         onRefresh: () -> Unit,
         showingRadar: Boolean,
@@ -421,14 +429,22 @@ private fun ForecastOrRadarSection(
                         modifier = Modifier.fillMaxSize()
                 )
             } else {
-                ForecastCardsList(forecast = forecast, modifier = Modifier.fillMaxSize())
+                ForecastCardsList(
+                        forecast = forecast,
+                        isDarkTheme = isDarkTheme,
+                        modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ForecastCardsList(forecast: List<DailyForecast>, modifier: Modifier = Modifier) {
+private fun ForecastCardsList(
+        forecast: List<DailyForecast>,
+        isDarkTheme: Boolean,
+        modifier: Modifier = Modifier
+) {
     val listState = rememberLazyListState()
     LazyColumn(
             modifier = modifier,
@@ -436,7 +452,7 @@ private fun ForecastCardsList(forecast: List<DailyForecast>, modifier: Modifier 
             verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(items = forecast, key = { it.date.toEpochDay() }, contentType = { "forecast-card" }) {
-            day -> DailyForecastCard(day = day)
+            day -> DailyForecastCard(day = day, isDarkTheme = isDarkTheme)
         }
     }
 }
@@ -786,24 +802,28 @@ private fun refreshRadarOverlay(mapView: MapView, overlay: TilesOverlay, userMar
 }
 
 @Composable
-private fun DailyForecastCard(day: DailyForecast) {
+private fun DailyForecastCard(day: DailyForecast, isDarkTheme: Boolean) {
     val dayLabel = remember(day.date) { formatDayLabel(day.date) }
     val temperature = remember(day.maxTempC, day.minTempC) {
         formatTemperatureRange(day.maxTempC, day.minTempC)
     }
     val precipitation = remember(day.precipitationChance) { formatPrecipitation(day.precipitationChance) }
     val wind = remember(day.maxWindSpeedKph) { formatWindDetailed(day.maxWindSpeedKph) }
-    val containerColor = rideScoreContainerColor(day.rideScore)
-    val borderColor = rideScoreStrokeColor(day.rideScore).copy(alpha = 0.5f)
+    val palette = remember(day.rideScore, isDarkTheme) {
+        RideScorePalette(
+            container = rideScoreContainerColor(day.rideScore, isDarkTheme),
+            stroke = rideScoreStrokeColor(day.rideScore, isDarkTheme)
+        )
+    }
 
     Card(
             modifier = Modifier.fillMaxWidth(),
             colors =
                     CardDefaults.cardColors(
-                            containerColor = containerColor,
+                            containerColor = palette.container,
                             contentColor = MaterialTheme.colorScheme.onSurface
                     ),
-            border = BorderStroke(1.dp, borderColor)
+            border = BorderStroke(1.dp, palette.stroke.copy(alpha = 0.5f))
     ) {
         Row(
                 modifier =
@@ -845,25 +865,53 @@ private fun DailyForecastCard(day: DailyForecast) {
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.background),
                     contentAlignment = Alignment.Center
-            ) { RideScoreBadge(score = day.rideScore, modifier = Modifier.fillMaxSize()) }
+            ) {
+                RideScoreBadge(
+                        score = day.rideScore,
+                        isDarkTheme = isDarkTheme,
+                        modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun RideScoreBadge(score: Int, modifier: Modifier = Modifier) {
+private fun RideScoreBadge(score: Int, isDarkTheme: Boolean, modifier: Modifier = Modifier) {
     val clamped = score.coerceIn(0, 100)
-    val accentColor = rideScoreStrokeColor(score)
-    val trackColor = Color.Transparent
-    val textColor = if (isSystemInDarkTheme()) Color.White else Color.Black
+    val accentColor = remember(clamped, isDarkTheme) { rideScoreStrokeColor(clamped, isDarkTheme) }
+    val textColor = if (isDarkTheme) Color.White else Color.Black
+    val progress = clamped / 100f
+    val strokeWidth = 8.dp
+    val strokeWidthPx = with(LocalDensity.current) { strokeWidth.toPx() }
+
     Box(modifier = modifier.padding(6.dp), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(
-                progress = { clamped / 100f },
-                strokeWidth = 8.dp,
-                modifier = Modifier.fillMaxSize(),
-                color = accentColor,
-                trackColor = trackColor
-        )
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val diameter = size.minDimension - strokeWidthPx
+            val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
+            val arcSize = Size(diameter, diameter)
+
+            drawArc(
+                    color = accentColor.copy(alpha = 0.2f),
+                    startAngle = -90f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+            )
+
+            drawArc(
+                    color = accentColor,
+                    startAngle = -90f,
+                    sweepAngle = 360f * progress,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+            )
+        }
+
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                     text = "$clamped%",
@@ -930,14 +978,12 @@ private fun scoreDescriptor(score: Int): String =
             else -> "Bad"
         }
 
-@Composable
-private fun rideScoreContainerColor(score: Int): Color {
-    val isDark = isSystemInDarkTheme()
+private fun rideScoreContainerColor(score: Int, isDarkTheme: Boolean): Color {
     val fraction = score.toFraction()
     val hue = 120f * fraction
     val saturation = 0.75f
     val lightness =
-            if (isDark) {
+            if (isDarkTheme) {
                 lerpFloat(0.22f, 0.4f, fraction)
             } else {
                 lerpFloat(0.6f, 0.9f, fraction)
@@ -945,20 +991,23 @@ private fun rideScoreContainerColor(score: Int): Color {
     return Color.hsl(hue = hue, saturation = saturation, lightness = lightness)
 }
 
-@Composable
-private fun rideScoreStrokeColor(score: Int): Color {
-    val isDark = isSystemInDarkTheme()
+private fun rideScoreStrokeColor(score: Int, isDarkTheme: Boolean): Color {
     val fraction = score.toFraction()
     val hue = 120f * fraction
     val saturation = 0.9f
     val lightness =
-            if (isDark) {
+            if (isDarkTheme) {
                 lerpFloat(0.4f, 0.65f, fraction)
             } else {
                 lerpFloat(0.45f, 0.6f, fraction)
             }
     return Color.hsl(hue = hue, saturation = saturation, lightness = lightness)
 }
+
+private data class RideScorePalette(
+    val container: Color,
+    val stroke: Color
+)
 
 private fun Int.toFraction(): Float = this.coerceIn(0, 100) / 100f
 

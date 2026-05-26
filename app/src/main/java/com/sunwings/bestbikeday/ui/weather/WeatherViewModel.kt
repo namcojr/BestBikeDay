@@ -15,6 +15,10 @@ class WeatherViewModel(
     private val rainViewerRepository: RainViewerRepository = RainViewerRepository()
 ) : ViewModel() {
 
+    companion object {
+        const val GENERIC_FORECAST_ERROR = "Unable to fetch weather data, please retry."
+    }
+
     private val _uiState = MutableStateFlow(WeatherUiState(isLoading = true))
     val uiState: StateFlow<WeatherUiState> = _uiState.asStateFlow()
 
@@ -51,11 +55,11 @@ class WeatherViewModel(
                         lastUpdatedEpochMillis = updateTimestamp
                     )
                 }
-            }.onFailure { throwable ->
+            }.onFailure {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = throwable.message ?: "Unable to load forecast",
+                        errorMessage = GENERIC_FORECAST_ERROR,
                         userLocation = newLocation,
                         rainFrame = radarFrame ?: it.rainFrame
                     )
