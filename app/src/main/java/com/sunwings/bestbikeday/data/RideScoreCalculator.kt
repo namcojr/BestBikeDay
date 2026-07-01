@@ -11,8 +11,12 @@ import kotlin.math.roundToInt
  * ideal conditions.
  */
 object RideScoreCalculator {
-    private const val OPTIMAL_TEMP_C = 26.0
+    private const val OPTIMAL_TEMP_C = 25.0
     private const val MAX_REASONABLE_WIND_KPH = 45.0
+
+    // Only mildly cool days may be gently uplifted when it is otherwise calm and dry.
+    // Genuinely hot days are never softened, so excessive heat keeps hurting the score.
+    private const val COOL_UPLIFT_MAX_TEMP_C = 22.0
 
     private const val CONDITION_MODIFIER_MIN = 0.4
     private const val CONDITION_MODIFIER_MAX = 1.0
@@ -20,21 +24,27 @@ object RideScoreCalculator {
     private const val RAIN_WEIGHT = 0.7
     private const val WIND_WEIGHT = 0.3
 
+    // Comfort peaks on a small plateau around 25°C and falls off on both sides. The hot side is
+    // more forgiving than the cold side (warmth is easier to cope with): 30°C still rides well,
+    // while 15°C is only "ok". Both 10°C and 40°C end up awful, with the cold end bottoming out
+    // slightly harder (10°C < 40°C), and extreme heat keeps dropping toward 0 beyond 40°C.
     private val TEMPERATURE_COMFORT_CURVE =
         listOf(
             ComfortAnchor(-10.0, 0.0),
-            ComfortAnchor(0.0, 0.05),
-            ComfortAnchor(5.0, 0.1),
-            ComfortAnchor(10.0, 0.15),
-            ComfortAnchor(15.0, 0.55),
-            ComfortAnchor(20.0, 0.82),
-            ComfortAnchor(22.0, 0.9),
+            ComfortAnchor(0.0, 0.0),
+            ComfortAnchor(5.0, 0.02),
+            ComfortAnchor(10.0, 0.08),
+            ComfortAnchor(15.0, 0.50),
+            ComfortAnchor(20.0, 0.80),
+            ComfortAnchor(23.0, 0.97),
             ComfortAnchor(25.0, 1.0),
             ComfortAnchor(27.0, 1.0),
-            ComfortAnchor(30.0, 0.90),
-            ComfortAnchor(32.0, 0.75),
+            ComfortAnchor(30.0, 0.72),
+            ComfortAnchor(32.0, 0.58),
             ComfortAnchor(35.0, 0.35),
-            ComfortAnchor(40.0, 0.05)
+            ComfortAnchor(37.0, 0.22),
+            ComfortAnchor(40.0, 0.12),
+            ComfortAnchor(45.0, 0.0)
         )
     private const val RAIN_PROBABILITY_THRESHOLD = 25
     private const val RAIN_LOG_STEEPNESS = 400.0
@@ -53,9 +63,13 @@ object RideScoreCalculator {
 
         // If rain and wind are both favorable (low rain chance, low wind),
         // slightly uplift the temperature component so mildly cool days (e.g. ~15°C)
-        // don't feel overly penalized. This is a very small adjustment.
+        // don't feel overly penalized. This is a very small adjustment, and it never
+        // applies to warm/hot days so excessive heat stays fully penalized.
+        val rideTemp = rideTemperature(maxTempC, minTempC)
         val favorableConditions = (rainScore >= 0.07 && windScore >= 0.07)
-        val tempScoreAdjusted = if (favorableConditions && tempScore < 0.85) {
+        val tempScoreAdjusted = if (
+            favorableConditions && rideTemp < COOL_UPLIFT_MAX_TEMP_C && tempScore < 0.85
+        ) {
             val upliftFraction = 0.08 // 8% of remaining gap to perfect
             (tempScore + (1.0 - tempScore) * upliftFraction).coerceIn(0.0, 1.0)
         } else {
@@ -81,13 +95,17 @@ object RideScoreCalculator {
     }
 
     private fun temperatureComponent(maxTempC: Double, minTempC: Double): Double {
-        val avgTemp = listOf(maxTempC, minTempC)
-            .filterNot { it.isNaN() }
-            .takeIf { it.isNotEmpty() }
-            ?.average()
-            ?: OPTIMAL_TEMP_C
+        return temperatureComfortScore(rideTemperature(maxTempC, minTempC))
+    }
 
-        return temperatureComfortScore(avgTemp)
+    /**
+     * Temperature the rider actually experiences during a daytime ride: prefer the day's max,
+     * falling back to the min and finally the optimal temperature when data is missing.
+     */
+    private fun rideTemperature(maxTempC: Double, minTempC: Double): Double = when {
+        !maxTempC.isNaN() -> maxTempC
+        !minTempC.isNaN() -> minTempC
+        else -> OPTIMAL_TEMP_C
     }
 
     private fun rainComponent(precipitationChance: Int): Double {
