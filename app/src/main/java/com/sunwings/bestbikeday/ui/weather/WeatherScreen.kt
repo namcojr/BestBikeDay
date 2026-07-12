@@ -860,7 +860,8 @@ private fun DailyForecastCard(day: DailyForecast, isDarkTheme: Boolean) {
             }
             Box(
                     modifier =
-                            Modifier.size(110.dp)
+                            Modifier.padding(end = 8.dp)
+                                    .size(132.dp)
                                     .padding(12.dp)
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.background),
