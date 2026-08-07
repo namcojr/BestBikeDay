@@ -9,7 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -44,7 +43,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -60,11 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,6 +68,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sunwings.bestbikeday.R
 import com.sunwings.bestbikeday.data.model.DailyForecast
@@ -104,7 +99,7 @@ import org.osmdroid.views.overlay.TilesOverlay
 
 @Composable
 fun WeatherRoute(modifier: Modifier = Modifier, viewModel: WeatherViewModel = viewModel()) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val fusedClient = remember { context.fusedLocationProvider() }
     var hasPermission by remember { mutableStateOf(context.hasLocationPermission()) }
@@ -884,34 +879,16 @@ private fun RideScoreBadge(score: Int, isDarkTheme: Boolean, modifier: Modifier 
     val textColor = if (isDarkTheme) Color.White else Color.Black
     val progress = clamped / 100f
     val strokeWidth = 8.dp
-    val strokeWidthPx = with(LocalDensity.current) { strokeWidth.toPx() }
 
     Box(modifier = modifier.padding(6.dp), contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val diameter = size.minDimension - strokeWidthPx
-            val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
-            val arcSize = Size(diameter, diameter)
-
-            drawArc(
-                    color = accentColor.copy(alpha = 0.2f),
-                    startAngle = -90f,
-                    sweepAngle = 360f,
-                    useCenter = false,
-                    topLeft = topLeft,
-                    size = arcSize,
-                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
-            )
-
-            drawArc(
-                    color = accentColor,
-                    startAngle = -90f,
-                    sweepAngle = 360f * progress,
-                    useCenter = false,
-                    topLeft = topLeft,
-                    size = arcSize,
-                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
-            )
-        }
+    CircularProgressIndicator(
+        progress = { progress },
+        modifier = Modifier.fillMaxSize(),
+        color = accentColor,
+        trackColor = accentColor.copy(alpha = 0.2f),
+        strokeWidth = strokeWidth,
+        strokeCap = StrokeCap.Round
+    )
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
