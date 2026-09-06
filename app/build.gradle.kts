@@ -24,10 +24,10 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file(System.getenv("KEYSTORE_PATH") ?: "/home/namco/.keystores/home-release.jks")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "sayijiwan"
-            keyAlias = System.getenv("KEY_ALIAS") ?: "homebrew"
-            keyPassword = System.getenv("KEY_PASSWORD") ?: "sayijiwan"
-            storeType = System.getenv("KEYSTORE_TYPE") ?: "pkcs12"
+            storePassword = System.getenv("KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("KEY_ALIAS")
+            keyPassword = System.getenv("KEY_PASSWORD")
+            storeType = System.getenv("KEYSTORE_TYPE")
         }
     }
 
